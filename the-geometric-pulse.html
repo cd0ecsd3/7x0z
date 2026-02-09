@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Geometric Pulse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
+            color: #fff; font-family: 'Space Mono', monospace;
+        }
+        canvas { position: absolute; top: 0; left: 0; }
+        .terminal-ui {
+            position: fixed; inset: 0;
+            display: flex; justify-content: center; align-items: center;
+            background: #000; z-index: 100;
+            transition: transform 0.8s cubic-bezier(1, 0, 0, 1);
+        }
+        .scanline {
+            width: 100%; height: 2px;
+            background: rgba(255, 255, 255, 0.1);
+            position: absolute; pointer-events: none;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="canvas"></canvas>
+    <div id="scanline" class="scanline"></div>
+
+    <div id="overlay" class="terminal-ui">
+        <div class="text-center">
+            <div class="mb-4 text-xs tracking-[1em] opacity-40">SYSTEM.READY</div>
+            <h1 class="text-5xl font-light mb-12 tracking-tighter">GEOMETRIC_PULSE</h1>
+            <button id="launch-btn" class="border border-white/30 px-10 py-4 hover:bg-white hover:text-black transition-all duration-300 uppercase text-xs tracking-widest">
+                Inisialisasi Detak
+            </button>
+        </div>
+    </div>
+
+    <div class="fixed top-10 left-10 text-[10px] tracking-widest opacity-30 pointer-events-none">
+        MODUS: RITME_FRAKTAL<br>
+        BPM: <span id="bpm-val">120</span><br>
+        POLIGON: <span id="poly-count">0</span>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const overlay = document.getElementById('overlay');
+        const scanline = document.getElementById('scanline');
+
+        let audioCtx, masterGain;
+        let isRunning = false;
+        let mouse = { x: 0, y: 0 };
+        let shapes = [];
+        let lastBeat = 0;
+        let bpm = 120;
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // Inisialisasi Audio: Percussive Clicks
+        async function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') await audioCtx.resume();
+            masterGain = audioCtx.createGain();
+            masterGain.connect(audioCtx.destination);
+            masterGain.gain.value = 0.5;
+        }
+
+        // Fungsi membuat suara "Percussion" pendek
+        function playTick(freq, decay = 0.1) {
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const g = audioCtx.createGain();
+            
+            osc.type = 'square'; // Suara digital tajam
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            
+            g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + decay);
+            
+            osc.connect(g);
+            g.connect(masterGain);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + decay);
+        }
+
+        document.getElementById('launch-btn').addEventListener('click', () => {
+            initAudio();
+            overlay.style.transform = 'translateY(-100%)';
+            isRunning = true;
+            animate();
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+            
+            // Mengubah BPM berdasarkan posisi X
+            bpm = 60 + (mouse.x / window.innerWidth) * 180;
+            document.getElementById('bpm-val').innerText = Math.floor(bpm);
+        });
+
+        function createShape() {
+            shapes.push({
+                x: mouse.x,
+                y: mouse.y,
+                size: 10,
+                sides: Math.floor(Math.random() * 4) + 3,
+                opacity: 1,
+                rotation: Math.random() * Math.PI
+            });
+            playTick(200 + (1 - mouse.y / window.innerHeight) * 1000, 0.05);
+        }
+
+        function animate() {
+            if (!isRunning) return;
+
+            // Efek Rekursi Frame (Zoom & Ghosting)
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(1.05, 1.05);
+            ctx.rotate(0.002);
+            ctx.drawImage(canvas, -canvas.width / 2, -canvas.height / 2);
+            ctx.restore();
+
+            // Latar belakang pudar transparan (Hitam murni)
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Ritme detak berdasarkan BPM
+            const now = performance.now();
+            if (now - lastBeat > (60000 / bpm)) {
+                createShape();
+                lastBeat = now;
+            }
+
+            // Gambar Poligon
+            ctx.lineWidth = 1;
+            shapes.forEach((s, i) => {
+                s.size += 5;
+                s.opacity -= 0.02;
+                s.rotation += 0.01;
+
+                ctx.strokeStyle = `rgba(255, 255, 255, ${s.opacity})`;
+                ctx.beginPath();
+                for (let n = 0; n < s.sides; n++) {
+                    const angle = s.rotation + (n * Math.PI * 2 / s.sides);
+                    const px = s.x + Math.cos(angle) * s.size;
+                    const py = s.y + Math.sin(angle) * s.size;
+                    if (n === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.stroke();
+
+                if (s.opacity <= 0) shapes.splice(i, 1);
+            });
+
+            // Animasi Scanline
+            const scanY = (now * 0.5) % window.innerHeight;
+            scanline.style.top = scanY + 'px';
+
+            document.getElementById('poly-count').innerText = shapes.length;
+
+            requestAnimationFrame(animate);
+        }
+    </script>
+</body>
+</html>
+
